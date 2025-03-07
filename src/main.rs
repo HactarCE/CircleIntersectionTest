@@ -1,5 +1,14 @@
-use cga2d::*;
 use eframe::egui::*;
+
+mod circle;
+
+use circle::Circle;
+
+/// Precision for floating-point comparisons.
+pub const EPSILON: f64 = 0.001;
+/// Number of points to use when rendering a 360-degrees circular arc as a
+/// polygon.
+pub const CIRCLE_POLYGON_POINTS: f64 = 50.0;
 
 fn main() -> eframe::Result {
     eframe::run_native(
@@ -7,17 +16,6 @@ fn main() -> eframe::Result {
         eframe::NativeOptions::default(),
         Box::new(|cc| Ok(Box::new(App::new(cc)))),
     )
-}
-
-#[derive(Debug, Copy, Clone, PartialEq)]
-struct Circle {
-    center: Pos2,
-    radius: f32,
-}
-impl Circle {
-    pub fn draw(self, p: &Painter, stroke: impl Into<Stroke>) {
-        p.circle_stroke(self.center, self.radius, stroke);
-    }
 }
 
 struct App {
@@ -34,7 +32,7 @@ impl App {
     }
 }
 impl eframe::App for App {
-    fn update(&mut self, ctx: &eframe::egui::Context, frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &eframe::egui::Context, _frame: &mut eframe::Frame) {
         SidePanel::right("right_panel").show(ctx, |ui| {
             // Show circles list
             let n = self.circles.len();
@@ -85,6 +83,46 @@ impl eframe::App for App {
             for (i, c) in circs.iter().enumerate() {
                 c.draw(p, (1.0, color(i, n)));
             }
+
+            let mut arcs = circle::intersect_many_circles(&circs);
+            let Some(first_arc) = arcs.pop() else { return };
+
+            let mut arcs_in_order = vec![first_arc];
+            let mut last_point = first_arc.end_point();
+
+            while let Some(i) = arcs.iter().position(|a| {
+                f32::min(
+                    a.start_point().distance_sq(last_point),
+                    a.end_point().distance_sq(last_point),
+                ) < EPSILON as f32
+            }) {
+                let new_arc = arcs.swap_remove(i);
+                arcs_in_order.push(new_arc);
+                last_point = new_arc.end_point();
+            }
+
+            let polygon_points = arcs_in_order
+                .into_iter()
+                .flat_map(|arc| arc.points_for_drawing())
+                .collect();
+            p.add(Shape::convex_polygon(
+                polygon_points,
+                Color32::from_rgba_unmultiplied(200, 0, 100, 100),
+                (1.5, Color32::WHITE),
+            ));
+            // if circs.is_empty() {
+            //     return;
+            // }
+            // let arcs = circle::cut_circle_by_circles(circs[0], circs[1..].iter().copied());
+            // let n = arcs.len();
+            // for (i, &arc) in arcs.iter().enumerate() {
+            //     p.add(Shape::convex_polygon(
+            //         arc.points_for_drawing().collect(),
+            //         color(i, n),
+            //         (1.5, Color32::WHITE),
+            //     ));
+            //     p.circle(arc.midpoint(), 2.0, color(i, n), (0.5, Color32::BLACK));
+            // }
         });
     }
 }
