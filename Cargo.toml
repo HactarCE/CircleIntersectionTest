@@ -1,0 +1,9 @@
+[package]
+name = "circle_intersection_test"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+cga2d = "0.4.0"
+colorous = "1.0.16"
+eframe = "0.31.1"
