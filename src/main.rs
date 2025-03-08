@@ -102,57 +102,49 @@ impl eframe::App for App {
             }
 
             let mut arcs = circle::intersect_many_circles(&circs);
-            let Some(first_arc) = arcs.pop() else { return };
 
-            let mut arcs_in_order = vec![first_arc];
-            let mut last_point = if first_arc.circle.inverted {
-                first_arc.start_point()
-            } else {
-                first_arc.end_point()
-            };
+            while !arcs.is_empty() {
+                let Some(first_arc) = arcs.pop() else { return };
 
-            while let Some(i) = arcs.iter().position(|a| {
-                if a.circle.inverted {
-                    a.end_point()
+                let mut arcs_in_order = vec![first_arc];
+                let mut last_point = if first_arc.circle.inverted {
+                    first_arc.start_point()
                 } else {
-                    a.start_point()
-                }
-                .distance_sq(last_point)
-                    < EPSILON as f32
-            }) {
-                let new_arc = arcs.swap_remove(i);
-                arcs_in_order.push(new_arc);
-                last_point = if new_arc.circle.inverted {
-                    new_arc.start_point()
-                } else {
-                    new_arc.end_point()
+                    first_arc.end_point()
                 };
-            }
 
-            if !arcs.is_empty() {
-                ui.colored_label(ui.visuals().error_fg_color, "unused arcs");
-                for unused_arc in arcs {
-                    ui.painter().arrow(
-                        unused_arc.start_point(),
-                        unused_arc.end_point() - unused_arc.start_point(),
-                        (1.0, ui.visuals().error_fg_color),
-                    );
+                while let Some(i) = arcs.iter().position(|a| {
+                    if a.circle.inverted {
+                        a.end_point()
+                    } else {
+                        a.start_point()
+                    }
+                    .distance_sq(last_point)
+                        < EPSILON as f32
+                }) {
+                    let new_arc = arcs.swap_remove(i);
+                    arcs_in_order.push(new_arc);
+                    last_point = if new_arc.circle.inverted {
+                        new_arc.start_point()
+                    } else {
+                        new_arc.end_point()
+                    };
                 }
-            }
 
-            if arcs_in_order.is_empty() {
-                return;
-            }
+                if arcs_in_order.is_empty() {
+                    continue;
+                }
 
-            let polygon_points = arcs_in_order
-                .into_iter()
-                .flat_map(|arc| arc.points_for_drawing())
-                .collect();
-            ui.painter().add(Shape::convex_polygon(
-                polygon_points,
-                Color32::from_rgba_unmultiplied(200, 0, 100, 100),
-                (1.5, Color32::WHITE),
-            ));
+                let polygon_points = arcs_in_order
+                    .into_iter()
+                    .flat_map(|arc| arc.points_for_drawing())
+                    .collect();
+                ui.painter().add(Shape::convex_polygon(
+                    polygon_points,
+                    Color32::from_rgba_unmultiplied(200, 0, 100, 10),
+                    (1.5, Color32::WHITE),
+                ));
+            }
         });
     }
 }
