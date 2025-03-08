@@ -20,13 +20,15 @@ fn main() -> eframe::Result {
 
 struct App {
     circles: Vec<Circle>,
+    circles_enabled: Vec<bool>,
     drag_start: Option<Pos2>,
 }
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        cc.egui_ctx.set_zoom_factor(2.0);
+        cc.egui_ctx.set_zoom_factor(1.5);
         Self {
             circles: vec![],
+            circles_enabled: vec![],
             drag_start: None,
         }
     }
@@ -37,11 +39,13 @@ impl eframe::App for App {
             // Show circles list
             let n = self.circles.len();
             let mut to_delete = None;
-            for i in 0..self.circles.len() {
+            self.circles_enabled.resize(n, true);
+            for i in 0..n {
                 ui.horizontal(|ui| {
                     if ui.button("🗑").clicked() {
                         to_delete = Some(i);
                     }
+                    ui.checkbox(&mut self.circles_enabled[i], "");
                     let h = ui.min_rect().height();
                     let (rect, _) = ui.allocate_exact_size(vec2(h, h), Sense::empty());
                     let stroke = (1.0, Color32::WHITE);
@@ -49,19 +53,31 @@ impl eframe::App for App {
                         .rect(rect, 3.0, color(i, n), stroke, StrokeKind::Inside);
                     ui.label(format!("Circle {}", i + 1));
                 });
+                ui.checkbox(&mut self.circles[i].inverted, "Inverted");
+                ui.separator();
             }
+            ui.label("Click and drag to add a new circle");
             if let Some(i) = to_delete {
                 self.circles.remove(i);
             }
         });
         CentralPanel::default().show(ctx, |ui| {
-            let r = ui.allocate_rect(ui.available_rect_before_wrap(), Sense::click_and_drag());
-            let p = ui.painter();
+            let r = ui.interact(
+                ui.available_rect_before_wrap(),
+                Id::new("circle_interaction"),
+                Sense::click_and_drag(),
+            );
             if r.drag_started() {
                 self.drag_start = r.interact_pointer_pos();
             }
 
-            let mut circs = self.circles.clone();
+            let mut circs = self
+                .circles
+                .iter()
+                .zip(&self.circles_enabled)
+                .filter(|(_, enabled)| **enabled)
+                .map(|(c, _)| *c)
+                .collect::<Vec<_>>();
 
             if let Some((drag_start, drag_end)) =
                 Option::zip(self.drag_start, r.interact_pointer_pos())
@@ -69,6 +85,7 @@ impl eframe::App for App {
                 let new_circ = Circle {
                     center: drag_start,
                     radius: drag_start.distance(drag_end),
+                    inverted: false,
                 };
                 if r.dragged() || r.drag_stopped() {
                     circs.push(new_circ);
@@ -81,48 +98,61 @@ impl eframe::App for App {
             let n = circs.len();
 
             for (i, c) in circs.iter().enumerate() {
-                c.draw(p, (1.0, color(i, n)));
+                c.draw(ui.painter(), (1.0, color(i, n)));
             }
 
             let mut arcs = circle::intersect_many_circles(&circs);
             let Some(first_arc) = arcs.pop() else { return };
 
             let mut arcs_in_order = vec![first_arc];
-            let mut last_point = first_arc.end_point();
+            let mut last_point = if first_arc.circle.inverted {
+                first_arc.start_point()
+            } else {
+                first_arc.end_point()
+            };
 
             while let Some(i) = arcs.iter().position(|a| {
-                f32::min(
-                    a.start_point().distance_sq(last_point),
-                    a.end_point().distance_sq(last_point),
-                ) < EPSILON as f32
+                if a.circle.inverted {
+                    a.end_point()
+                } else {
+                    a.start_point()
+                }
+                .distance_sq(last_point)
+                    < EPSILON as f32
             }) {
                 let new_arc = arcs.swap_remove(i);
                 arcs_in_order.push(new_arc);
-                last_point = new_arc.end_point();
+                last_point = if new_arc.circle.inverted {
+                    new_arc.start_point()
+                } else {
+                    new_arc.end_point()
+                };
+            }
+
+            if !arcs.is_empty() {
+                ui.colored_label(ui.visuals().error_fg_color, "unused arcs");
+                for unused_arc in arcs {
+                    ui.painter().arrow(
+                        unused_arc.start_point(),
+                        unused_arc.end_point() - unused_arc.start_point(),
+                        (1.0, ui.visuals().error_fg_color),
+                    );
+                }
+            }
+
+            if arcs_in_order.is_empty() {
+                return;
             }
 
             let polygon_points = arcs_in_order
                 .into_iter()
                 .flat_map(|arc| arc.points_for_drawing())
                 .collect();
-            p.add(Shape::convex_polygon(
+            ui.painter().add(Shape::convex_polygon(
                 polygon_points,
                 Color32::from_rgba_unmultiplied(200, 0, 100, 100),
                 (1.5, Color32::WHITE),
             ));
-            // if circs.is_empty() {
-            //     return;
-            // }
-            // let arcs = circle::cut_circle_by_circles(circs[0], circs[1..].iter().copied());
-            // let n = arcs.len();
-            // for (i, &arc) in arcs.iter().enumerate() {
-            //     p.add(Shape::convex_polygon(
-            //         arc.points_for_drawing().collect(),
-            //         color(i, n),
-            //         (1.5, Color32::WHITE),
-            //     ));
-            //     p.circle(arc.midpoint(), 2.0, color(i, n), (0.5, Color32::BLACK));
-            // }
         });
     }
 }

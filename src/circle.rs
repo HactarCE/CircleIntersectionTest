@@ -1,4 +1,4 @@
-use std::f32::consts::{FRAC_PI_2, FRAC_PI_3, PI, TAU};
+use std::f32::consts::TAU;
 
 use eframe::egui::{Painter, Pos2, Stroke, pos2, vec2};
 
@@ -6,6 +6,7 @@ use eframe::egui::{Painter, Pos2, Stroke, pos2, vec2};
 pub struct Circle {
     pub center: Pos2,
     pub radius: f32,
+    pub inverted: bool,
 }
 impl Circle {
     pub fn draw(self, p: &Painter, stroke: impl Into<Stroke>) {
@@ -13,20 +14,11 @@ impl Circle {
     }
 
     pub fn to_cga(self) -> cga2d::Blade3 {
+        // could include orientation but we didn't bother
         cga2d::circle(
             cga2d::point(self.center.x as f64, self.center.y as f64),
             self.radius as f64,
         )
-    }
-
-    pub fn from_cga(blade: cga2d::Blade3) -> Option<Self> {
-        match blade.unpack(crate::EPSILON) {
-            cga2d::LineOrCircle::Line { .. } => None,
-            cga2d::LineOrCircle::Circle { cx, cy, r } => Some(Self {
-                center: pos2(cx as f32, cy as f32),
-                radius: r as f32,
-            }),
-        }
     }
 
     pub fn point_at_angle(self, angle: f32) -> Pos2 {
@@ -35,7 +27,7 @@ impl Circle {
     }
 
     pub fn contains(self, pos: Pos2) -> bool {
-        self.center.distance_sq(pos) < self.radius * self.radius
+        (self.center.distance_sq(pos) < self.radius * self.radius) ^ self.inverted
     }
 }
 
@@ -54,7 +46,11 @@ impl ArcSegment {
     }
 
     fn radians(self) -> f32 {
-        (self.end_angle - self.start_angle).rem_euclid(TAU)
+        let a = (self.end_angle - self.start_angle).rem_euclid(TAU);
+        if a < crate::EPSILON as f32 {
+            return TAU;
+        }
+        a
     }
 
     pub fn midpoint(self) -> Pos2 {
@@ -63,9 +59,12 @@ impl ArcSegment {
     }
 
     pub fn points_for_drawing(self) -> impl Iterator<Item = Pos2> {
-        let start = self.start_angle;
-        let end = self.start_angle + self.radians();
-        let point_count = (crate::CIRCLE_POLYGON_POINTS as f32 * (end - start) / TAU).ceil();
+        let (start, end) = if self.circle.inverted {
+            (self.start_angle + self.radians(), self.start_angle)
+        } else {
+            (self.start_angle, self.start_angle + self.radians())
+        };
+        let point_count = (crate::CIRCLE_POLYGON_POINTS as f32 * self.radians() / TAU).ceil();
         // exclude the very last point (because it'll be covered by the next arc)
         (0..point_count as usize)
             .map(move |i| lerp(start, end, i as f32 / point_count))
